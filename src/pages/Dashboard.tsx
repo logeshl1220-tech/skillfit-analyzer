@@ -17,11 +17,10 @@ import { ResumePanel, type UploadedFile } from "@/components/ats/ResumePanel";
 import { JobPanel } from "@/components/ats/JobPanel";
 import { AnalysisResults } from "@/components/ats/AnalysisResults";
 import {
-  analyzeJobFit,
   ROLE_PRESETS,
   sampleScenario,
-  type Analysis,
 } from "@/lib/ats";
+import { analyze, type Analysis } from "@/lib/ats/engine";
 import { cn } from "@/lib/utils";
 
 type ResumeMode = "upload" | "paste";
@@ -51,7 +50,7 @@ export default function Dashboard() {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [stageIndex, setStageIndex] = useState(0);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [analysis, setAnalysis] = useState<(Analysis & { aiPowered: boolean }) | null>(null);
   const [runId, setRunId] = useState(0);
 
   const topRef = useRef<HTMLDivElement>(null);
@@ -68,7 +67,6 @@ export default function Dashboard() {
       return false;
     }
 
-    const next = analyzeJobFit({ resume, jd: description, roleHint });
     setPhase("running");
     setAnalysis(null);
     setStageIndex(0);
@@ -79,6 +77,7 @@ export default function Dashboard() {
       await sleep(380);
     }
 
+    const next = await analyze({ resume, jd: description, roleHint });
     setAnalysis(next);
     setRunId((id) => id + 1);
     setPhase("done");
@@ -253,9 +252,9 @@ export default function Dashboard() {
         {/* Action bar */}
         <div className="glass mt-4 flex flex-col gap-4 rounded-2xl p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <p className="text-xs leading-relaxed text-white/40">
-            <span className="font-medium text-white/70">Works in your browser.</span>{" "}
-            Resume files never leave your device — the scoring engine runs
-            locally with zero API keys.
+            <span className="font-medium text-white/70">Powered by Google Gemini.</span>{" "}
+            Resume and JD are sent to Gemini for deep analysis. Falls back to
+            a local rule engine if the API key is unavailable.
           </p>
           <Button
             type="button"
@@ -291,7 +290,7 @@ export default function Dashboard() {
                     Running your compatibility scan
                   </h2>
                   <p className="text-xs text-white/40">
-                    Rule engine · local · ~2 seconds
+                    Gemini AI · server-side · ~3-5 seconds
                   </p>
                 </div>
               </div>
@@ -334,6 +333,12 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-xl font-bold tracking-tight text-white">
                   Your compatibility report
+                  {analysis.aiPowered && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-sky-400/25 bg-sky-400/[0.10] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-300">
+                      <Sparkles className="size-2.5" />
+                      AI Powered
+                    </span>
+                  )}
                 </h2>
                 <p className="mt-1 text-xs text-white/45">
                   Score, gaps, STAR rewrites and interview questions — all
