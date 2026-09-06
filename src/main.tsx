@@ -84,6 +84,19 @@ import { getConvexClient } from "@/lib/convexClient";
 
 const convex = getConvexClient();
 
+/** Register the PWA service worker in production builds only — the dev
+ *  server must stay uncached so the preview always reflects latest code. */
+function registerServiceWorker() {
+  if (!import.meta.env.PROD) return;
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.warn("[SkillFit] Service worker registration failed:", error);
+    });
+  });
+}
+registerServiceWorker();
+
 
 
 function RouteSyncer() {
