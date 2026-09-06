@@ -600,3 +600,237 @@ export function sampleScenario() {
     presetId: ROLE_PRESETS[0].id,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Structured resume parsing (local fallback for the PDF exporter)     */
+/* ------------------------------------------------------------------ */
+
+export interface ResumeEntry {
+  title: string;
+  subtitle: string;
+  dates: string;
+  details: string[];
+}
+
+export interface ParsedResume {
+  name: string;
+  contact: string[];
+  summary: string[];
+  skills: string[];
+  education: ResumeEntry[];
+  experience: ResumeEntry[];
+  projects: ResumeEntry[];
+}
+
+const SECTION_PATTERNS: Array<{ id: keyof ParsedResume; re: RegExp }> = [
+  { id: "summary", re: /^(summary|profile|about me|objective)/i },
+  { id: "education", re: /^education|academic/i },
+  { id: "experience", re: /^(work\s*)?(experience|employment|internships?|work\s+history)/i },
+  { id: "projects", re: /^(personal\s+|academic\s+|open\s+source\s+)?projects?/i },
+  { id: "skills", re: /^(technical\s+|core\s+|professional\s+)?(skills|technologies|languages|tools|tech\s+stack)/i },
+];
+
+function isSectionHeader(line: string): keyof ParsedResume | null {
+  const t = line.trim();
+  if (!t || t.length > 34) return null;
+  const hit = SECTION_PATTERNS.find((p) => p.re.test(t));
+  if (!hit) return null;
+  // Require header-like shape: all-caps or a short phrase (≤ 3 words).
+  return t.split(/\s+/).length <= 3 ? hit.id : null;
+}
+
+function emptyEntry(): ResumeEntry {
+  return { title: "", subtitle: "", dates: "", details: [] };
+}
+
+function toTitleCase(s: string): string {
+  if (!/^[A-Z0-9\s.'-]+$/.test(s)) return s;
+  return s.toLowerCase().replace(/(^|\s|-)(\p{L})/gu, (_, pre, ch) => pre + ch.toUpperCase());
+}
+
+function splitContact(line: string): string[] {
+  return line
+    .split(/\s*[·|]\s*/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function splitSkills(line: string): string[] {
+  // Drop a category label like "Frontend:" before splitting on separators.
+  const body = line.replace(/^[^:]+:\s*/, "");
+  return body
+    .split(/\s*[,·|]\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length <= 40);
+}
+
+/** Matches "(2021 – 2025)", "(May 2024 – Jul 2024)", "(2023 – Present)" … */
+const ENTRY_DATE_PATTERN =
+  /\((\d{4}\s*[–—-]\s*(?:\d{4}|present|current|now)|[A-Z][a-z]{2,8}\.?\s+\d{4}\s*[–—-]\s*(?:[A-Z][a-z]{2,8}\.?\s+\d{4}|present|current|now))\)/i;
+
+function parseEntryLine(line: string): ResumeEntry {
+  const entry = emptyEntry();
+  let rest = line.trim();
+
+  // 1) Trailing date range in parens → dates.
+  const dm = rest.match(ENTRY_DATE_PATTERN);
+  if (dm && dm.index !== undefined) {
+    entry.dates = dm[1].trim();
+    rest = rest.slice(0, dm.index) + rest.slice(dm.index + dm[0].length);
+  }
+
+  // 2) Trailing " · extra" (e.g. CGPA, coursework) → a detail line.
+  const tm = rest.match(/\s*[·|]\s*(.+)$/);
+  if (tm && tm[1].trim().length < 80) {
+    entry.details.push(tm[1].trim());
+    rest = rest.slice(0, tm.index).trimEnd();
+  }
+
+  // 3) Non-date parenthetical (e.g. a project tech stack) → subtitle tail.
+  const pm = rest.match(/\(([^()]*)\)$/);
+  if (pm && pm[1].trim()) {
+    const extra = pm[1].trim();
+    rest = rest.slice(0, pm.index).trimEnd();
+    entry.subtitle = entry.subtitle ? `${entry.subtitle} · ${extra}` : extra;
+  }
+
+  // 4) Split "Title — Subtitle" (or "Title, Institution") into fields.
+  const dash = rest.match(/^(.*?)\s*(?:[—–]\s*|\s-\s)(.*)$/);
+  if (dash) {
+    entry.title = dash[1].trim();
+    entry.subtitle = entry.subtitle
+      ? `${dash[2].trim()} · ${entry.subtitle}`
+      : dash[2].trim();
+  } else {
+    const comma = rest.match(/^(.*?),\s*(.*)$/);
+    if (comma && comma[2].length < 60) {
+      entry.title = comma[1].trim();
+      entry.subtitle = entry.subtitle
+        ? `${comma[2].trim()} · ${entry.subtitle}`
+        : comma[2].trim();
+    } else {
+      entry.title = rest.trim();
+    }
+  }
+
+  if (!entry.title) entry.title = line.trim();
+  return entry;
+}
+
+/**
+ * Best-effort, heuristic parse of a raw resume into structured sections.
+ * The AI path returns richer structured data; this covers the local fallback
+ * (and any resume Gemini couldn't parse) so the PDF export always has data.
+ */
+export function parseResume(text: string): ParsedResume {
+  const result: ParsedResume = {
+    name: "",
+    contact: [],
+    summary: [],
+    skills: [],
+    education: [],
+    experience: [],
+    projects: [],
+  };
+
+  let section: keyof ParsedResume | null = null;
+  let current: ResumeEntry | null = null;
+  let foundHeader = false;
+
+  const pushEntry = () => {
+    if (
+      current &&
+      current.title &&
+      (section === "education" || section === "experience" || section === "projects")
+    ) {
+      result[section].push(current);
+    }
+    current = null;
+  };
+
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    const header = isSectionHeader(line);
+    if (header) {
+      pushEntry();
+      section = header;
+      foundHeader = true;
+      current = null;
+      continue;
+    }
+
+    // All-caps line that isn't a tracked section (ACHIEVEMENTS, etc.) —
+    // treat as an unknown header and skip until the next real section.
+    if (/^[A-Z][A-Z0-9\s&/\-–—]{2,30}$/.test(line) && line.length <= 34 && foundHeader) {
+      pushEntry();
+      section = null;
+      current = null;
+      continue;
+    }
+
+    if (!foundHeader) {
+      // Pre-header block: name, then contact / objective lines.
+      if (!result.name) {
+        result.name = toTitleCase(line.replace(/[|,;]+$/, ""));
+      } else if (
+        /@|github|linkedin|www\.|https?:\/\/|\b\d{10}\b|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/.test(
+          line,
+        ) ||
+        line.includes("·") ||
+        line.includes("|")
+      ) {
+        result.contact.push(...splitContact(line));
+      } else {
+        result.summary.push(line);
+      }
+      continue;
+    }
+
+    if (section === "summary") {
+      result.summary.push(line);
+      continue;
+    }
+
+    if (section === "skills") {
+      result.skills.push(...splitSkills(line));
+      continue;
+    }
+
+    if (section === "education" || section === "experience" || section === "projects") {
+      const isBullet = /^[•\-*▪‣>]/.test(raw.trim());
+      if (isBullet) {
+        if (!current) current = emptyEntry();
+        current.details.push(line.replace(/^[•\-*▪‣>]\s*/, ""));
+        continue;
+      }
+
+      // Coursework / GPA lines under Education attach to the current entry.
+      if (
+        section === "education" &&
+        /^(?:(?:relevant\s+)?coursework|gpa|cgpa|sgpa|grade)\b/i.test(line)
+      ) {
+        if (!current) current = emptyEntry();
+        current.details.push(line);
+        continue;
+      }
+
+      // Any other non-bullet line starts a new entry.
+      pushEntry();
+      current = parseEntryLine(line);
+    }
+  }
+  pushEntry();
+
+  // Dedupe skills (labels like "Languages:" produce repeats across categories).
+  const seen = new Set<string>();
+  result.skills = result.skills.filter((s) => {
+    const key = s.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return result;
+}

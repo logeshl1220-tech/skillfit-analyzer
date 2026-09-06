@@ -2,6 +2,7 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import type { ParsedResume, ResumeEntry } from "../lib/ats";
 
 const GEMINI_API_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
@@ -36,10 +37,21 @@ Return ONLY valid JSON (no markdown fences) matching this exact schema:
   ],
   "questions": [
     { "type": "<Technical|Behavioral|Role Fit>", "question": "<question text>", "why": "<why this question>" }
-  ]
+  ],
+  "resume": {
+    "name": "<candidate name exactly as written>",
+    "contact": ["<each contact item on its own string: email, phone, city, LinkedIn, GitHub>"],
+    "summary": ["<professional summary / objective lines from the resume, or [] if none>"],
+    "skills": ["<every skill or technology the resume lists, one per string>"],
+    "education": [{ "title": "<degree>", "subtitle": "<institution>", "dates": "<year range>", "details": ["<GPA, coursework, honors — or []>"] }],
+    "experience": [{ "title": "<role title>", "subtitle": "<company>", "dates": "<dates>", "details": ["<each original bullet, verbatim>"] }],
+    "projects": [{ "title": "<project name>", "subtitle": "<short descriptor / tech stack>", "dates": "", "details": ["<each original bullet, verbatim>"] }]
+  }
 }
 
 Guidelines:
+- The "resume" object must faithfully mirror the resume's own content — never invent entries, companies, skills, or projects.
+- bulletTips STAR fragments: situation/task/action/result must each be a concise, resume-ready phrase (Situation: context; Task: goal; Action: what the candidate did with the skill; Result: quantified outcome). They are pasted into a tailored resume PDF, so no coaching or meta-instructions inside them.
 - Score is holistic: keyword match (~45%), structure (~20%), impact language (~20%), formatting (~15%).
 - matchedSkills: skills/technologies from the JD that appear in the resume.
 - missingSkills: required JD skills NOT found in the resume.
@@ -83,7 +95,7 @@ export const analyzeResume = action({
         generationConfig: {
           temperature: 0.4,
           topP: 0.95,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 8192,
           responseMimeType: "application/json",
         },
       }),
@@ -122,6 +134,7 @@ export const analyzeResume = action({
       missingSkills: toStringArray(parsed.missingSkills),
       bulletTips: normalizeBulletTips(parsed.bulletTips),
       questions: normalizeQuestions(parsed.questions),
+      resume: normalizeResume(parsed.resume),
     };
   },
 });
@@ -205,6 +218,49 @@ function normalizeBulletTips(raw: unknown): Array<{
       result: String(tip.result || ""),
     };
   });
+}
+
+function normalizeResume(raw: unknown): ParsedResume | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+
+  const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const strArray = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? v
+          .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+          .map((x) => x.trim())
+      : [];
+
+  const entry = (v: unknown): ResumeEntry | null => {
+    if (!v || typeof v !== "object") return null;
+    const e = v as Record<string, unknown>;
+    const title = str(e.title);
+    if (!title) return null;
+    return {
+      title,
+      subtitle: str(e.subtitle),
+      dates: str(e.dates),
+      details: strArray(e.details),
+    };
+  };
+
+  const entries = (v: unknown): ResumeEntry[] =>
+    Array.isArray(v)
+      ? v
+          .map(entry)
+          .filter((x): x is ResumeEntry => x !== null)
+      : [];
+
+  return {
+    name: str(r.name),
+    contact: strArray(r.contact),
+    summary: strArray(r.summary),
+    skills: strArray(r.skills),
+    education: entries(r.education),
+    experience: entries(r.experience),
+    projects: entries(r.projects),
+  };
 }
 
 function normalizeQuestions(raw: unknown): Array<{

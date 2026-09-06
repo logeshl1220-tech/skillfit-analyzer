@@ -1,16 +1,25 @@
 import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   CheckCircle2,
+  Download,
   Gauge,
   Lightbulb,
+  Loader2,
   MessageSquareText,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
   Wand2,
 } from "lucide-react";
-import type { Analysis, BulletTip, InterviewQuestion, RatingTone } from "@/lib/ats";
+import type {
+  Analysis,
+  BulletTip,
+  InterviewQuestion,
+  ParsedResume,
+  RatingTone,
+} from "@/lib/ats";
+import { generateResumePdf } from "@/lib/ats/pdf";
 import { ScoreRing } from "@/components/ats/ScoreRing";
 import { cn } from "@/lib/utils";
 
@@ -192,12 +201,30 @@ function StarTip({ tip, index }: { tip: BulletTip; index: number }) {
 
 interface AnalysisResultsProps {
   analysis: Analysis;
+  resume: ParsedResume;
   onNewScan: () => void;
 }
 
-export function AnalysisResults({ analysis, onNewScan }: AnalysisResultsProps) {
+export function AnalysisResults({
+  analysis,
+  resume,
+  onNewScan,
+}: AnalysisResultsProps) {
   const { score, tone, rating, signals, matchedSkills, missingSkills, roleLabel } =
     analysis;
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function handleDownloadPdf() {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      // Brief pause so the compiling state is visible while jsPDF lays out the doc.
+      await new Promise((r) => setTimeout(r, 450));
+      generateResumePdf(resume, analysis);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -240,6 +267,27 @@ export function AnalysisResults({ analysis, onNewScan }: AnalysisResultsProps) {
               {missingSkills.length} missing
             </span>
           </div>
+
+          {/* Tailored resume export */}
+          <div className="mt-6 w-full">
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={pdfBusy}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_28px_-12px_rgba(56,189,248,0.6)] transition-all hover:brightness-110 active:scale-[0.99] disabled:cursor-wait disabled:opacity-80"
+            >
+              {pdfBusy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              {pdfBusy ? "Generating PDF…" : "Download Tailored Resume (PDF)"}
+            </button>
+            <p className="mt-2 text-center text-[10.5px] leading-relaxed text-white/35">
+              ATS-friendly · single page · STAR-optimized bullets · matched
+              skills included
+            </p>
+          </div>
         </div>
 
         {/* Breakdown */}
@@ -273,8 +321,8 @@ export function AnalysisResults({ analysis, onNewScan }: AnalysisResultsProps) {
           </ul>
           <p className="mt-5 flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[11px] leading-relaxed text-white/45">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-cyan-300" />
-            This scan runs on a built-in rule engine (100+ tracked skills) — no
-            API key needed. Scores are directional guidance, not a recruiter.
+            Scores are directional guidance, not a recruiter — powered by Gemini
+            AI when a key is configured, otherwise the built-in rule engine.
           </p>
         </SectionCard>
       </div>

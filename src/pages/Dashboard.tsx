@@ -20,7 +20,7 @@ import {
   ROLE_PRESETS,
   sampleScenario,
 } from "@/lib/ats";
-import { analyze, type Analysis } from "@/lib/ats/engine";
+import { analyze, type Analysis, type SkillFitResult } from "@/lib/ats/engine";
 import { cn } from "@/lib/utils";
 
 type ResumeMode = "upload" | "paste";
@@ -50,7 +50,7 @@ export default function Dashboard() {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [stageIndex, setStageIndex] = useState(0);
-  const [analysis, setAnalysis] = useState<(Analysis & { aiPowered: boolean }) | null>(null);
+  const [analysis, setAnalysis] = useState<SkillFitResult | null>(null);
   const [runId, setRunId] = useState(0);
 
   const topRef = useRef<HTMLDivElement>(null);
@@ -366,6 +366,7 @@ export default function Dashboard() {
             <AnalysisResults
               key={runId}
               analysis={analysis}
+              resume={analysis.resume}
               onNewScan={handleNewScan}
             />
           </div>
