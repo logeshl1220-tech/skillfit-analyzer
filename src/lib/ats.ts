@@ -721,6 +721,12 @@ function roleForProse(role: string): string {
   return role.toLowerCase().replace(/\s*\([^)]*\)\s*/g, "").trim();
 }
 
+/** "a, b, c" → "a, b, and c" — a clean terminal "and" for lists. */
+function listAnd(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
 /**
  * Deterministic 4-paragraph fallback letter built from the analysis —
  * used when Gemini is unavailable so the feature still works offline.
@@ -752,7 +758,7 @@ export function localCoverLetter(
   const role = analysis.roleLabel || "Software Engineer";
   const matched = analysis.matchedSkills.slice(0, 3);
   const missing = analysis.missingSkills.slice(0, 2);
-  const skills = matched.length > 0 ? matched.join(", ") : "core web technologies";
+  const skills = matched.length > 0 ? listAnd(matched) : "core web technologies";
   const achievements = analysis.bulletTips
     .filter((t) => t.original)
     .map(starProse)
@@ -761,17 +767,19 @@ export function localCoverLetter(
 
   const p2 =
     achievements.length > 0
-      ? `My recent work maps directly to the core of this role: ${achievements.join(" ")}`
-      : `Through coursework and personal projects I have built complete, working applications with ${skills}, and I hold myself to the standard of shipping measurable outcomes rather than checklists.`;
+      ? `The clearest evidence comes from my recent work. ${achievements.join(
+          " ",
+        )} Each of these taught me to pair curiosity with measurable outcomes.`
+      : `My strongest evidence comes from coursework and personal projects, where I built complete, working applications with ${skills} and held myself to shipping measurable outcomes rather than checking boxes.`;
 
-  const gaps = [...missing, "clear communication", "ownership"];
+  const gaps = listAnd([...missing, "clear communication", "ownership"]);
 
   return {
     paragraphs: [
-      `I am excited to apply for the ${roleForProse(role)} position. My background combines hands-on project experience with ${skills}, and I am eager to bring that blend of curiosity and ownership to your team.`,
-      `What I offer maps directly to what you are hiring for. ${p2}`,
-      `Beyond the matched keywords, I understand the role calls for ${gaps.join(", ")}. I close gaps fast: I learn in public, ship in small reviewable increments, and ask sharp questions early — habits that have served me well in every project and internship so far.`,
-      `I would welcome the chance to discuss how my experience can contribute to your team's goals. Thank you for your time and consideration — I look forward to hearing from you.`,
+      `I am excited to apply for the ${roleForProse(role)} position. My background combines hands-on project experience with ${skills}. I would bring that same blend of curiosity and ownership to your team.`,
+      p2,
+      `Beyond technical fit, I understand the role also calls for ${gaps}. I close gaps quickly by learning in public, shipping in small reviewable increments, and asking sharp questions early. Every project I have taken on has reinforced that habit, and it is the working style I would bring to your team from day one.`,
+      `I would welcome the chance to discuss how my experience can contribute to your team's goals. Thank you for your time and consideration. I look forward to hearing from you.`,
     ],
     aiPowered: false,
   };

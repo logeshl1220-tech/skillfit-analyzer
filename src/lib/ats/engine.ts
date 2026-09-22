@@ -73,6 +73,22 @@ export async function analyze(input: {
 }
 
 /**
+ * Punctuation pass over the letter: collapse stray whitespace and ensure
+ * every paragraph ends with terminal punctuation. Keeps both AI and local
+ * drafts consistent before display or PDF export.
+ */
+export function polishParagraphsForTest(paragraphs: string[]): string[] {
+  return polishParagraphs(paragraphs);
+}
+
+function polishParagraphs(paragraphs: string[]): string[] {
+  return paragraphs
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter((p) => p.length > 0)
+    .map((p) => (/[.!?:"”)]$/.test(p) ? p : `${p}.`));
+}
+
+/**
  * Draft a tailored cover letter. Tries the Gemini-backed Convex action
  * first; falls back to the deterministic local composer so the feature
  * still produces a usable letter without an API key.
@@ -98,7 +114,8 @@ export async function generateCoverLetter(input: {
       Array.isArray((result as CoverLetterDraft).paragraphs) &&
       (result as CoverLetterDraft).paragraphs.length > 0
     ) {
-      return result as CoverLetterDraft;
+      const ai = result as CoverLetterDraft;
+      return { paragraphs: polishParagraphs(ai.paragraphs), aiPowered: true };
     }
     throw new Error("Invalid response shape from generateCoverLetter action");
   } catch (err) {
@@ -107,7 +124,7 @@ export async function generateCoverLetter(input: {
       err instanceof Error ? err.message : err,
     );
   }
-  return localCoverLetter({
+  const fallback = localCoverLetter({
     ...(analyzeJobFit({
       resume: input.resumeText,
       jd: input.jd,
@@ -115,4 +132,8 @@ export async function generateCoverLetter(input: {
     }) as Analysis),
     roleLabel: roleHint,
   });
+  return {
+    paragraphs: polishParagraphs(fallback.paragraphs),
+    aiPowered: false,
+  };
 }

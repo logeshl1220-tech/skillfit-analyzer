@@ -115,6 +115,22 @@ if (draft.paragraphs.some((p) => /\b(S|T|A|R):/.test(p))) {
 if (draft.paragraphs.some((p) => p.length < 80)) {
   fail("cover letter has a suspiciously short paragraph (<80 chars)");
 }
+// No repeated template phrases across the letter.
+const lower = draft.paragraphs.map((p) => p.toLowerCase());
+for (const phrase of ["maps directly", "habits that"]) {
+  const hits = lower.filter((p) => p.includes(phrase)).length;
+  if (hits > 0) fail(`letter uses the banned template phrase "${phrase}"`);
+}
+// Every paragraph ends with terminal punctuation.
+if (draft.paragraphs.some((p) => !/[.!?]$/.test(p.trim()))) {
+  fail("a cover-letter paragraph lacks terminal punctuation");
+}
+// Closing remarks split into complete sentences, no em-dash glue.
+const last = draft.paragraphs[draft.paragraphs.length - 1];
+if (/—|;/.test(last)) fail("closing remarks use em-dash/semicolon instead of full stops");
+if (!/Thank you for your time and consideration\. I look forward/.test(last)) {
+  fail("closing remarks are not split into complete sentences");
+}
 console.log(`5. Local cover letter: ${draft.paragraphs.length} paragraphs · OK`);
 
 /* ---- 6. Cover-letter PDF builds ----------------------------------------- */
@@ -132,6 +148,20 @@ if (back.length !== draft.paragraphs.length) {
   fail(`paragraph round-trip mismatch: ${back.length} vs ${draft.paragraphs.length}`);
 }
 console.log("7. Letter text round-trip · OK");
+
+/* ---- 8. polishParagraphs normalizer -------------------------------------- */
+const { polishParagraphsForTest } = await import("../src/lib/ats/engine");
+const polished = polishParagraphsForTest([
+  "Ends mid clause and trails off  ",
+  "Already fine.",
+  "Has   irregular   spacing.",
+]);
+if (polished[0] !== "Ends mid clause and trails off.") {
+  fail(`polishParagraphs did not add terminal period: "${polished[0]}"`);
+}
+if (polished[1] !== "Already fine.") fail("polishParagraphs altered a clean paragraph");
+if (polished[2] !== "Has irregular spacing.") fail("polishParagraphs did not collapse spacing");
+console.log("8. polishParagraphs normalizer · OK");
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);

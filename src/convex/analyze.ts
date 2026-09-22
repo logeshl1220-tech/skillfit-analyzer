@@ -18,18 +18,21 @@ Return ONLY valid JSON (no markdown fences):
 
 Paragraph plan:
 1. Strong hook: genuine enthusiasm for THIS specific role (use the exact role title from the JD) plus one line on the candidate's core background.
-2. 2-3 matched technical achievements drawn from the resume, each with quantifiable impact (numbers, %, scale) — rephrase resume bullets into flowing first-person prose, never copy them verbatim.
-3. Address the JD's key requirements and explain role/culture fit; when the resume misses a requirement, reframe eagerness and adjacent experience positively instead of apologizing.
-4. Professional sign-off paragraph with a clear call to action (availability for an interview) and gratitude.
+2. 2-3 matched technical achievements drawn from the resume, each with quantifiable impact (numbers, %, scale) — rephrase resume bullets into flowing first-person prose, never copy them verbatim. Open with a bridging sentence about evidence, not a list.
+3. Address the JD's key requirements and explain role/culture fit; when the resume misses a requirement, reframe eagerness and adjacent experience positively instead of apologizing. Bridge from the achievements paragraph with a transition like "Beyond hands-on work…" or "Just as important…".
+4. Professional sign-off paragraph with a clear call to action (availability for an interview) and gratitude. Put gratitude and the call to action in separate complete sentences.
 
 Rules:
 - First person, confident but never arrogant; no clichés like "I am writing to apply".
 - Every claim must be grounded in the resume — never invent companies, projects, or numbers.
 - Naturally weave in 3-5 of the JD's exact skill keywords.
 - 45-70 words per paragraph; total under 280 words.
-- No markdown, no placeholders like [Company Name] (say "your team"), no salutation/closing lines ("Dear...", "Sincerely") — the app adds letterhead itself.`;
-
-const COVER_LETTER_SYSTEM_MODEL = "gemini-2.0-flash";
+- No markdown, no placeholders like [Company Name] (say "your team"), no salutation/closing lines ("Dear...", "Sincerely") — the app adds letterhead itself.
+- Vary sentence openings and phrasing. Never reuse the same phrase or template (e.g. "maps directly to") more than once in the whole letter, and do not start two sentences in the same paragraph with the same word.
+- Every sentence must be complete and grammatical. Never end a paragraph mid-clause or with a dangling fragment (e.g. "...habits that"). Re-read each paragraph end-to-end before finalizing.
+- Connect sentences with natural transitions so each paragraph reads as one flowing, confident narrative — not a list of disconnected statements.
+- Separate standalone closing remarks with full stops, never em-dashes or semicolons. Example: "Thank you for your time and consideration. I look forward to hearing from you."
+- End every paragraph with a period.`;
 
 const SYSTEM_PROMPT = `You are SkillFit, an expert ATS resume analyzer. Given a resume and a job description, produce a JSON analysis evaluating how well the resume fits the role.
 
@@ -208,7 +211,7 @@ export const generateCoverLetter = action({
         generationConfig: {
           temperature: 0.7,
           topP: 0.95,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 3072,
           responseMimeType: "application/json",
         },
       }),

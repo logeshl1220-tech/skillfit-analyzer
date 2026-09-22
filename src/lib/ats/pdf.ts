@@ -37,6 +37,9 @@ const SECTION_GAP = 13;
 const ENTRY_GAP = 10;
 const BULLET_GAP = 5;
 
+/** Uniform blank-line height between cover-letter body paragraphs. */
+const PARA_GAP = 12;
+
 /* ------------------------------------------------------------------ */
 /* Text helpers                                                        */
 /* ------------------------------------------------------------------ */
@@ -515,27 +518,28 @@ export function generateCoverLetterPdf(
     ctx.y += lineH(size);
 
     /* ---- Salutation + body paragraphs -------------------------------- */
-    ctx.y += 10;
+    ctx.y += 12;
     drawText(ctx, "Dear Hiring Manager,", MARGIN, ctx.y, size, INK);
-    ctx.y += lineH(size) + 12;
+    ctx.y += lineH(size) + 10;
 
     for (const para of draft.paragraphs) {
       const clean = sanitize(para);
       if (!clean) continue;
       const lines = wrapped(ctx.doc, clean, CONTENT_W, size);
       const h = lines.length * lineH(size);
-      if (!canFit(ctx, h + 12)) break; // better short than a torn second page
+      if (!canFit(ctx, h + PARA_GAP)) break; // better short than a torn second page
       lines.forEach((ln, i) => {
         drawText(ctx, ln, MARGIN, ctx.y + i * lineH(size), size, INK);
       });
-      ctx.y += h + 12;
+      ctx.y += h + PARA_GAP;
     }
 
     /* ---- Closing ------------------------------------------------------ */
-    ctx.y += 8;
-    if (canFit(ctx, lineH(size) * 3)) {
+    // Normalize trailing whitespace; keep the rhythm even to the end.
+    if (canFit(ctx, lineH(size) * 4)) {
+      ctx.y += lineH(size) - PARA_GAP; // visual gap after the last paragraph
       drawText(ctx, "Sincerely,", MARGIN, ctx.y, size, INK);
-      ctx.y += lineH(size) + 26;
+      ctx.y += lineH(size) + 24;
       drawText(ctx, name, MARGIN, ctx.y, size, INK, { style: "bold" });
     }
 
