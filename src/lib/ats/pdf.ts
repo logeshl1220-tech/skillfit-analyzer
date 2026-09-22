@@ -227,13 +227,25 @@ function sectionHeader(ctx: DocCtx, title: string): boolean {
   return true;
 }
 
+/**
+ * Strip any bullet/marker characters a parser or AI left on a detail line so
+ * every Experience/Projects line renders exactly one clean "•" with a uniform
+ * hanging indent. A dash only counts as a marker when followed by whitespace,
+ * so words like "e-mail" survive intact.
+ */
+export function normalizeBulletLine(raw: string): string {
+  return sanitize(raw)
+    .replace(/^(\s*[•*▪‣·>]+|\s*[-–—]\s+)\s*/, "")
+    .trim();
+}
+
 /** Bulleted lines with a hanging indent. Returns false when it can't fit. */
 function drawBullets(ctx: DocCtx, bullets: string[]): boolean {
   const bX = MARGIN + 8;
   const tX = MARGIN + 20;
   const width = CONTENT_W - 24;
   for (const raw of bullets) {
-    const text = sanitize(raw);
+    const text = normalizeBulletLine(raw);
     if (!text) continue;
     const lines = wrapped(ctx.doc, text, width, ctx.bodySize);
     const h = lines.length * lineH(ctx.bodySize);
@@ -543,7 +555,7 @@ export function generateCoverLetterPdf(
       drawText(ctx, name, MARGIN, ctx.y, size, INK, { style: "bold" });
     }
 
-    doc.save("SkillFit_Cover_Letter.pdf");
+    doc.save(pdfFileName(resume.name, "cover-letter"));
     return;
   }
 }
@@ -552,21 +564,45 @@ export function generateCoverLetterPdf(
 /* Public API                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Dynamic download name: "Priya_Sharma_Tailored_Resume.pdf" or
+ * "Priya_Sharma_Cover_Letter.pdf". Falls back to the SkillFit_* name only
+ * when no candidate name was parsed.
+ */
+export function pdfFileName(
+  resumeName: string,
+  kind: "resume" | "cover-letter",
+): string {
+  const base = kind === "resume" ? "Tailored_Resume" : "Cover_Letter";
+  const clean = resumeName
+    .trim()
+    .replace(/[^A-Za-z0-9 ]+/g, " ")
+    .trim()
+    .replace(/\s+/g, "_");
+  if (!clean) {
+    return kind === "resume"
+      ? "SkillFit_Resume.pdf"
+      : "SkillFit_Cover_Letter.pdf";
+  }
+  return `${clean}_${base}.pdf`;
+}
+
 /** Generate and download the tailored resume. Tries smaller type until it fits one page. */
 export function generateResumePdf(
   resume: ParsedResume,
   analysis: Analysis,
   aiPowered = false,
 ): void {
+  const filename = pdfFileName(resume.name, "resume");
   const sizes = [10, 9.5, 9, 8.5, 8];
   for (const size of sizes) {
     const doc = buildDoc(resume, analysis, size, false, aiPowered);
     if (doc) {
-      doc.save("SkillFit_Tailored_Resume.pdf");
+      doc.save(filename);
       return;
     }
   }
   // Last resort: let the 8pt layout flow onto a second page.
   const doc = buildDoc(resume, analysis, 8, true, aiPowered);
-  if (doc) doc.save("SkillFit_Tailored_Resume.pdf");
+  if (doc) doc.save(filename);
 }

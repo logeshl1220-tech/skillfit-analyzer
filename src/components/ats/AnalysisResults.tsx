@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import {
   CheckCircle2,
   Check,
@@ -26,9 +27,30 @@ import type {
 } from "@/lib/ats";
 import { coverLetterToText } from "@/lib/ats";
 import { generateCoverLetter } from "@/lib/ats/engine";
-import { generateCoverLetterPdf, generateResumePdf } from "@/lib/ats/pdf";
+import {
+  composeStarBullet,
+  generateCoverLetterPdf,
+  generateResumePdf,
+} from "@/lib/ats/pdf";
 import { ScoreRing } from "@/components/ats/ScoreRing";
 import { cn } from "@/lib/utils";
+
+/**
+ * Clipboard helper for all one-click copy actions. `onDone` flips the inline
+ * button label to "Copied!"; the toast gives the brief global confirmation.
+ */
+async function copyToClipboard(
+  text: string,
+  onDone: () => void,
+): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    onDone();
+    toast.success("Copied to clipboard!", { duration: 2000 });
+  } catch {
+    toast.error("Couldn't copy — please copy manually.");
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Small building blocks                                               */
@@ -145,6 +167,8 @@ const STAR_STYLES: Record<string, string> = {
 };
 
 function StarTip({ tip, index }: { tip: BulletTip; index: number }) {
+  const [copied, setCopied] = useState(false);
+  const composedText = composeStarBullet(tip);
   const lines: Array<{ key: string; label: string; text: string }> = [
     { key: "S", label: "Situation", text: tip.situation },
     { key: "T", label: "Task", text: tip.task },
@@ -161,9 +185,29 @@ function StarTip({ tip, index }: { tip: BulletTip; index: number }) {
           <Wand2 className="size-3" />
           {tip.skill}
         </span>
-        <span className="tnum text-[11px] font-semibold text-white/30">
-          0{index + 1}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={`Copy STAR bullet for ${tip.skill}`}
+            onClick={() =>
+              void copyToClipboard(composedText, () => {
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 2000);
+              })
+            }
+            className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] font-medium text-white/60 transition-colors hover:bg-white/[0.09] hover:text-white"
+          >
+            {copied ? (
+              <Check className="size-3 text-emerald-300" />
+            ) : (
+              <Copy className="size-3" />
+            )}
+            {copied ? "Copied!" : "Copy"}
+          </button>
+          <span className="tnum text-[11px] font-semibold text-white/30">
+            0{index + 1}
+          </span>
+        </div>
       </div>
 
       {tip.original ? (
@@ -265,13 +309,10 @@ export function AnalysisResults({
   }
 
   async function handleCopyLetter() {
-    try {
-      await navigator.clipboard.writeText(letterText);
+    await copyToClipboard(letterText, () => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard blocked (e.g. insecure context) — ignore silently.
-    }
+    });
   }
 
   function handleLetterPdf() {
@@ -286,6 +327,9 @@ export function AnalysisResults({
             .filter(Boolean),
           aiPowered: letter.aiPowered,
         });
+        toast.success("Cover letter PDF downloaded.", { duration: 2500 });
+      } catch {
+        toast.error("Couldn't generate the PDF — please try again.");
       } finally {
         setLetterPdfBusy(false);
       }

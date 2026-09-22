@@ -6,7 +6,13 @@
  *  3. Every drawn text fragment, line-wrapped at body size, fits CONTENT_W.
  * Not bundled into the app.
  */
-import { buildDoc, composeStarBullet, generateCoverLetterPdf } from "../src/lib/ats/pdf";
+import {
+  buildDoc,
+  composeStarBullet,
+  generateCoverLetterPdf,
+  normalizeBulletLine,
+  pdfFileName,
+} from "../src/lib/ats/pdf";
 import {
   analyzeJobFit,
   coverLetterToText,
@@ -162,6 +168,38 @@ if (polished[0] !== "Ends mid clause and trails off.") {
 if (polished[1] !== "Already fine.") fail("polishParagraphs altered a clean paragraph");
 if (polished[2] !== "Has irregular spacing.") fail("polishParagraphs did not collapse spacing");
 console.log("8. polishParagraphs normalizer · OK");
+
+/* ---- 9. Bullet-line normalization ----------------------------------------- */
+const bulletCases: Array<[string, string]> = [
+  ["• Built reusable React components", "Built reusable React components"],
+  ["  •   Led a team of 6", "Led a team of 6"],
+  ["- Integrated REST APIs", "Integrated REST APIs"],
+  ["– Designed the schema", "Designed the schema"],
+  ["* Wrote Jest tests", "Wrote Jest tests"],
+  ["> Mentored juniors", "Mentored juniors"],
+  ["Handled e-mail support tickets", "Handled e-mail support tickets"],
+  ["Built  e-mail  aliases", "Built  e-mail  aliases"],
+];
+for (const [input, expected] of bulletCases) {
+  const got = normalizeBulletLine(input);
+  if (got !== expected) fail(`normalizeBulletLine(${JSON.stringify(input)}) → ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+}
+console.log("9. Bullet-line normalization · OK");
+
+/* ---- 10. Dynamic PDF file naming ------------------------------------------- */
+const nameCases: Array<[string, "resume" | "cover-letter", string]> = [
+  ["Priya Sharma", "resume", "Priya_Sharma_Tailored_Resume.pdf"],
+  ["Priya Sharma", "cover-letter", "Priya_Sharma_Cover_Letter.pdf"],
+  ["  ", "resume", "SkillFit_Resume.pdf"],
+  ["", "cover-letter", "SkillFit_Cover_Letter.pdf"],
+  ["O'Brien-Smith  Jr.", "resume", "O_Brien_Smith_Jr_Tailored_Resume.pdf"],
+  ["ANA MARÍA", "cover-letter", "ANA_MAR_A_Cover_Letter.pdf"],
+];
+for (const [name, kind, expected] of nameCases) {
+  const got = pdfFileName(name, kind);
+  if (got !== expected) fail(`pdfFileName(${JSON.stringify(name)}, ${kind}) → ${got}, expected ${expected}`);
+}
+console.log("10. Dynamic PDF file naming · OK");
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
