@@ -134,8 +134,45 @@ function lineH(size: number): number {
 }
 
 function wrapped(doc: jsPDF, text: string, width: number, size: number): string[] {
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(size);
   return doc.splitTextToSize(text, width) as string[];
+}
+
+const MEASURE_SIZE = 6; // 6pt Helvetica ≈ 0.5px/char — cheap per-char measuring.
+
+/**
+ * Like `wrapped`, but also hard-breaks any single token wider than `width`
+ * (URLs, long tech names) so nothing ever overflows the right margin.
+ */
+function wrapWithBreak(doc: jsPDF, text: string, width: number, size: number): string[] {
+  const out: string[] = [];
+  for (const line of wrapped(doc, text, width, size)) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(size);
+    if (doc.getTextWidth(line) <= width) {
+      out.push(line);
+      continue;
+    }
+    // A single token is too wide for the line — hard-break it char by char.
+    for (const token of line.split(" ")) {
+      if (doc.getTextWidth(token) <= width) {
+        out.push(token);
+        continue;
+      }
+      let chunk = "";
+      for (const ch of token) {
+        if (chunk && doc.getTextWidth(chunk + ch) > width) {
+          out.push(chunk);
+          chunk = ch;
+        } else {
+          chunk += ch;
+        }
+      }
+      if (chunk) out.push(chunk);
+    }
+  }
+  return out;
 }
 
 function drawText(
@@ -345,7 +382,11 @@ export function buildDoc(
     const lines = wrapped(ctx.doc, summaryLines[0], CONTENT_W, ctx.bodySize);
     const h = lines.length * lineH(ctx.bodySize);
     if (!canFit(ctx, h + 6)) return null;
-    drawText(ctx, summaryLines[0], MARGIN, ctx.y, ctx.bodySize, INK);
+    // Draw the pre-wrapped lines individually — jsPDF's text() does not wrap,
+    // so a single draw call would overflow the right margin.
+    lines.forEach((ln, i) => {
+      drawText(ctx, ln, MARGIN, ctx.y + i * lineH(ctx.bodySize), ctx.bodySize, INK);
+    });
     ctx.y += h + 6;
   }
 
@@ -354,10 +395,14 @@ export function buildDoc(
   if (skills.length > 0) {
     if (!sectionHeader(ctx, "Skills")) return null;
     const skillsText = skills.join(", ");
-    const lines = wrapped(ctx.doc, skillsText, CONTENT_W, ctx.bodySize);
+    // Word-wrap within the margins (with word-break for long tokens) so the
+    // last skill (e.g. "Firebase") wraps instead of getting clipped.
+    const lines = wrapWithBreak(ctx.doc, skillsText, CONTENT_W, ctx.bodySize);
     const h = lines.length * lineH(ctx.bodySize);
     if (!canFit(ctx, h + 6)) return null;
-    drawText(ctx, skillsText, MARGIN, ctx.y, ctx.bodySize, INK);
+    lines.forEach((ln, i) => {
+      drawText(ctx, ln, MARGIN, ctx.y + i * lineH(ctx.bodySize), ctx.bodySize, INK);
+    });
     ctx.y += h + 6;
   }
 
