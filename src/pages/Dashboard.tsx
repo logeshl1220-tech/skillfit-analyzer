@@ -367,6 +367,7 @@ export default function Dashboard() {
               key={runId}
               analysis={analysis}
               resume={analysis.resume}
+              aiPowered={analysis.aiPowered}
               onNewScan={handleNewScan}
             />
           </div>

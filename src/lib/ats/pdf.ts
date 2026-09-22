@@ -60,10 +60,14 @@ function cleanFragment(s: string): string {
     .replace(/[.\s]+$/, "");
 }
 
+/** Ensure a fragment ends like a sentence. */
+function ensurePeriod(s: string): string {
+  return /[.!?]$/.test(s) ? s : `${s}.`;
+}
+
 /**
- * Situation fragment for the composed bullet. The local rule engine wraps a
- * weak line in coaching prose ("you took on <line> in a project…") — recover
- * the candidate's own wording for the PDF when that wrapper is detected.
+ * Situation fragment for the composed bullet. Coaching wrappers from older
+ * engine versions are unwrapped back to the candidate's own wording.
  */
 function situationText(tip: BulletTip): string {
   const frag = cleanFragment(tip.situation);
@@ -77,16 +81,17 @@ function situationText(tip: BulletTip): string {
   return frag;
 }
 
-/** Collapse a STAR tip into a single resume-ready bullet. */
+/** Collapse a STAR tip into a single resume-ready, flowing bullet. */
 export function composeStarBullet(tip: BulletTip): string {
   const parts = [
-    tip.situation ? `S: ${situationText(tip)}` : "",
-    tip.task ? `T: ${capFirst(cleanFragment(tip.task))}` : "",
-    tip.action ? `A: ${capFirst(cleanFragment(tip.action))}` : "",
-    tip.result ? `R: ${capFirst(cleanFragment(tip.result))}` : "",
-  ].filter((p) => p.length > 3);
-  if (parts.length === 0) return "";
-  return `${parts.join("  ")}.`;
+    tip.situation ? situationText(tip) : "",
+    tip.task ? cleanFragment(tip.task) : "",
+    tip.action ? cleanFragment(tip.action) : "",
+    tip.result ? cleanFragment(tip.result) : "",
+  ]
+    .filter((p) => p.length > 3)
+    .map((p) => ensurePeriod(capFirst(p)));
+  return parts.join(" ");
 }
 
 function normLine(s: string): string {
@@ -268,11 +273,20 @@ function drawEntry(
   return bullets.length > 0 ? drawBullets(ctx, bullets) : true;
 }
 
-function buildDoc(
+/** Synthesize a one-line professional summary from matched skills + role. */
+function autoSummary(analysis: Analysis): string {
+  const skills = analysis.matchedSkills.slice(0, 5).join(", ");
+  if (!skills) return "";
+  const role = analysis.roleLabel || "Software Engineer";
+  return `Aspiring ${role} with hands-on project experience in ${skills}. Quick learner focused on shipping reliable, user-facing features.`;
+}
+
+export function buildDoc(
   resume: ParsedResume,
   analysis: Analysis,
   bodySize: number,
   allowOverflow: boolean,
+  aiPowered: boolean,
 ): jsPDF | null {
   const doc = new jsPDF({ unit: "pt", format: "letter", compress: true });
   const ctx: DocCtx = { doc, y: MARGIN, bodySize, allowOverflow };
@@ -312,20 +326,26 @@ function buildDoc(
     const [tip] = tips.splice(idx, 1);
     return tip;
   };
-  // Suggestions with no original line get appended to the first entry.
-  const extraBullets = analysis.bulletTips
-    .filter((t) => !t.original)
-    .map(composeStarBullet)
-    .filter(Boolean);
+  // Suggestions with no original line are real resume content only when the
+  // AI wrote them (the local engine's are learning advice, not experience).
+  const extraBullets = aiPowered
+    ? analysis.bulletTips
+        .filter((t) => !t.original)
+        .map(composeStarBullet)
+        .filter(Boolean)
+    : [];
 
-  /* ---- Summary ------------------------------------------------------ */
-  if (resume.summary.length > 0) {
+  /* ---- Summary (auto-generated when the resume has none) ------------- */
+  const summaryLines =
+    resume.summary.length > 0
+      ? [sanitize(resume.summary.join(" ")).slice(0, 700)]
+      : [autoSummary(analysis)];
+  if (summaryLines[0]) {
     if (!sectionHeader(ctx, "Summary")) return null;
-    const summaryText = sanitize(resume.summary.join(" ")).slice(0, 700);
-    const lines = wrapped(ctx.doc, summaryText, CONTENT_W, ctx.bodySize);
+    const lines = wrapped(ctx.doc, summaryLines[0], CONTENT_W, ctx.bodySize);
     const h = lines.length * lineH(ctx.bodySize);
     if (!canFit(ctx, h + 6)) return null;
-    drawText(ctx, summaryText, MARGIN, ctx.y, ctx.bodySize, INK);
+    drawText(ctx, summaryLines[0], MARGIN, ctx.y, ctx.bodySize, INK);
     ctx.y += h + 6;
   }
 
@@ -387,16 +407,20 @@ function buildDoc(
 /* ------------------------------------------------------------------ */
 
 /** Generate and download the tailored resume. Tries smaller type until it fits one page. */
-export function generateResumePdf(resume: ParsedResume, analysis: Analysis): void {
+export function generateResumePdf(
+  resume: ParsedResume,
+  analysis: Analysis,
+  aiPowered = false,
+): void {
   const sizes = [10, 9.5, 9, 8.5, 8];
   for (const size of sizes) {
-    const doc = buildDoc(resume, analysis, size, false);
+    const doc = buildDoc(resume, analysis, size, false, aiPowered);
     if (doc) {
       doc.save("SkillFit_Tailored_Resume.pdf");
       return;
     }
   }
   // Last resort: let the 8pt layout flow onto a second page.
-  const doc = buildDoc(resume, analysis, 8, true);
+  const doc = buildDoc(resume, analysis, 8, true, aiPowered);
   if (doc) doc.save("SkillFit_Tailored_Resume.pdf");
 }

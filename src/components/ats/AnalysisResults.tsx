@@ -202,12 +202,14 @@ function StarTip({ tip, index }: { tip: BulletTip; index: number }) {
 interface AnalysisResultsProps {
   analysis: Analysis;
   resume: ParsedResume;
+  aiPowered: boolean;
   onNewScan: () => void;
 }
 
 export function AnalysisResults({
   analysis,
   resume,
+  aiPowered,
   onNewScan,
 }: AnalysisResultsProps) {
   const { score, tone, rating, signals, matchedSkills, missingSkills, roleLabel } =
@@ -220,7 +222,7 @@ export function AnalysisResults({
     try {
       // Brief pause so the compiling state is visible while jsPDF lays out the doc.
       await new Promise((r) => setTimeout(r, 450));
-      generateResumePdf(resume, analysis);
+      generateResumePdf(resume, analysis, aiPowered);
     } finally {
       setPdfBusy(false);
     }

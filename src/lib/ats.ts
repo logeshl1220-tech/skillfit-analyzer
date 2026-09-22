@@ -398,6 +398,111 @@ export function inferRole(jd: string, hint?: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Resume-ready STAR fragments (report + tailored-resume PDF)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Domain-aware Task/Action phrasing so a composed bullet stays coherent
+ * (you don't "containerize" with Excel). Fragments must be resume-ready:
+ * they are pasted verbatim into the tailored-resume PDF, so no coaching or
+ * meta-instructions ("close with a number…") inside them.
+ */
+const STAR_AREA: Array<{
+  match: RegExp;
+  task: (skill: string) => string;
+  action: (skill: string) => string;
+}> = [
+  {
+    match: /docker|kubernetes|aws|gcp|azure|ci\/cd|jenkins|terraform|serverless|linux|nginx|ec2|s3|github actions/i,
+    task: (s) => `Set up a reproducible build-and-deploy pipeline using ${s}.`,
+    action: (s) =>
+      `Configured ${s} for the project, wired it into the team's workflow, and validated it on every release.`,
+  },
+  {
+    match: /graphql|rest|node|express|nestjs|django|flask|fastapi|spring|microservices|kafka|websockets|grpc|postgresql|mysql|mongo|redis|sql|database|auth|oauth|jwt|api/i,
+    task: (s) => `Design and deliver the ${s}-backed service layer the product needed.`,
+    action: (s) =>
+      `Modeled the data, built the ${s} endpoints, and hardened them with tests and proper error handling.`,
+  },
+  {
+    match: /react|next\.js|vue|angular|redux|tailwind|css|html|figma|responsive|typescript|javascript|ui\/ux|accessibility/i,
+    task: (s) => `Build the product's ${s} features to spec and on schedule.`,
+    action: (s) =>
+      `Implemented the components with ${s}, kept them responsive and accessible, and covered critical flows with tests.`,
+  },
+  {
+    match: /python|pandas|numpy|excel|tableau|power bi|statistics|ab test|etl|visualization|machine learning|deep learning|pytorch|tensorflow|data/i,
+    task: (s) => `Turn raw data into decision-ready outputs using ${s}.`,
+    action: (s) =>
+      `Cleaned and analyzed the data with ${s}, then presented findings the team acted on.`,
+  },
+];
+
+const STAR_AREA_GENERIC = {
+  task: (skill: string) => `Scope the ${skill.toLowerCase()} work and deliver it end to end.`,
+  action: (skill: string) =>
+    `Applied ${skill} hands-on, shipped in small reviewable increments, and verified with tests or feedback.`,
+};
+
+function capSentence(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/** First quantified span in a line ("40+ internal users", "25%") or null. */
+function metricMatchIndex(line: string): number | null {
+  const m = line.match(/\d[\d.,]*\s*(?:%|percent)?\+?/);
+  return m && m.index !== undefined ? m.index : null;
+}
+
+/**
+ * Situation = the candidate's own line minus a trailing metric clause
+ * ("…dashboard used by 40+ internal users" → "…dashboard"), so the
+ * quantified part can become the Result fragment instead of duplicating.
+ */
+function trimMetricTail(line: string): string {
+  const idx = metricMatchIndex(line);
+  if (idx === null) return line.replace(/\.$/, "").trim();
+  const before = line.slice(0, idx);
+  const stripped = before
+    .replace(/\s*(?:used by|served|serving|supporting|reaching|delivering|for|with)\s*$/i, "")
+    .trim();
+  return stripped.length >= 20 ? stripped : line.replace(/\.$/, "").trim();
+}
+
+/**
+ * Result fragment: the quantified clause from the candidate's own line,
+ * phrased naturally ("Used by 40+ internal users.", "Reduced bugs by 25%.").
+ */
+function resultFragment(line: string): string | null {
+  const idx = metricMatchIndex(line);
+  if (idx === null) return null;
+
+  // Clause start: after the last comma/semicolon before the metric.
+  let start = 0;
+  for (let i = idx - 1; i >= 0; i--) {
+    if (/[,;]/.test(line[i])) {
+      start = i + 1;
+      break;
+    }
+  }
+  let clause = line.slice(start).split(/[.;]/)[0].trim();
+
+  if (clause.length > 90) {
+    // Try a leading preposition phrase: "used by 40+ users", "reducing bugs by 25%".
+    const window = line.slice(Math.max(0, idx - 24), idx);
+    const pre = window.match(
+      /((?:used|served|serving|supporting|reducing|reduced|cutting|cut|growing|grew|increasing|increased|improving|improved|saving|saved|delivering|delivered|reaching|reached|for)\s+)$/i,
+    );
+    if (pre) {
+      clause = line.slice(idx - pre[1].length).split(/[.;]/)[0].trim();
+    }
+  }
+
+  if (!clause || clause.length > 90 || clause.length < 4) return null;
+  return capSentence(clause.replace(/^[,\s]+/, ""));
+}
+
+/* ------------------------------------------------------------------ */
 /* Main analyzer                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -518,23 +623,24 @@ export function analyzeJobFit(input: {
   for (let i = 0; i < Math.min(3, focusSkills.length); i++) {
     const skill = focusSkills[i];
     const original = weakBullets[i] ?? null;
-    const subject = original
-      ? original.length > 90
-        ? `${original.slice(0, 90)}…`
-        : original
-      : null;
-
-    const start = subject
-      ? `Situation — you took on ${subject.toLowerCase().replace(/\.$/, "")} in a project or internship where the team needed a reliable owner.`
-      : `Situation — your resume mentions ${skill}, but recruiters can't tell what problem you solved with it yet.`;
+    const area = STAR_AREA.find((a) => a.match.test(skill)) ?? STAR_AREA_GENERIC;
 
     bulletTips.push({
       skill,
       original,
-      situation: start,
-      task: `Task — set a concrete, bounded goal: e.g. “enable users to ${subject ? "complete this flow" : `use ${skill}`} reliably” with an explicit deadline or success measure.`,
-      action: `Action — own it end to end: break the work into steps, apply ${skill}, ship in small reviewable changes, and verify with tests or feedback.`,
-      result: `Result — close with a number: “cut load time by 35%”, “served 1,200+ users”, “reduced bugs by 25%”. Quantified results are the single strongest ATS signal.`,
+      situation: original
+        ? capSentence(trimMetricTail(original))
+        : `Coursework and self-study covered ${skill}, but nothing shipped proves it yet.`,
+      task: original
+        ? area.task(skill)
+        : `Build a small, complete ${skill} project with a defined deliverable and deadline.`,
+      action: original
+        ? area.action(skill)
+        : `Learned ${skill} fundamentals hands-on and shipped a working project end to end.`,
+      result: original
+        ? resultFragment(original) ??
+          "Shipped on schedule and cut rework measurably in the following release."
+        : "Published the project with a README, live demo, and a measurable result to cite.",
     });
   }
 

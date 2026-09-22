@@ -72,8 +72,8 @@ const FEATURES: Array<{
   {
     icon: FileCheck2,
     tile: "text-teal-300 bg-teal-400/12 border-teal-400/20",
-    title: "PDF or plain text",
-    body: "Drag in your resume PDF and it's parsed locally in your browser — or paste the text. Your file never leaves your device.",
+    title: "Resume in, tailored resume out",
+    body: "Drag in a PDF or paste text to analyze — then download a one-page, ATS-safe resume with STAR bullets swapped in and matched skills added.",
   },
   {
     icon: Rocket,
