@@ -368,6 +368,8 @@ export default function Dashboard() {
               analysis={analysis}
               resume={analysis.resume}
               aiPowered={analysis.aiPowered}
+              resumeText={resumeText}
+              jdText={jd}
               onNewScan={handleNewScan}
             />
           </div>

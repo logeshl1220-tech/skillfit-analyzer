@@ -12,7 +12,13 @@
  */
 
 import { jsPDF } from "jspdf";
-import type { Analysis, BulletTip, ParsedResume, ResumeEntry } from "../ats";
+import type {
+  Analysis,
+  BulletTip,
+  CoverLetterDraft,
+  ParsedResume,
+  ResumeEntry,
+} from "../ats";
 
 /* ------------------------------------------------------------------ */
 /* Layout constants (US Letter, 0.6" margins)                          */
@@ -445,6 +451,97 @@ export function buildDoc(
 
   // Fits within one page.
   return canFit(ctx, 0) ? doc : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cover letter PDF                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Professional business-letter layout: sender letterhead from the parsed
+ * resume, date, recipient block, salutation, body paragraphs, sign-off —
+ * same clean single-column Helvetica profile as the tailored resume.
+ */
+export function generateCoverLetterPdf(
+  resume: ParsedResume,
+  draft: CoverLetterDraft,
+): void {
+  const sizes = [10.5, 10, 9.5, 9];
+  for (const size of sizes) {
+    const doc = new jsPDF({ unit: "pt", format: "letter", compress: true });
+    const ctx: DocCtx = { doc, y: MARGIN, bodySize: size, allowOverflow: false };
+
+    /* ---- Sender letterhead ------------------------------------------ */
+    const name = sanitize(resume.name) || "Candidate";
+    const contact = resume.contact.map(sanitize).filter(Boolean).join("  ·  ");
+
+    drawText(ctx, name, PAGE_W / 2, ctx.y, size + 6, INK, {
+      align: "center",
+      style: "bold",
+    });
+    ctx.y += lineH(size + 6);
+    if (contact) {
+      const contactLines = wrapped(ctx.doc, contact, CONTENT_W, size - 1);
+      contactLines.forEach((ln, i) => {
+        drawText(ctx, ln, PAGE_W / 2, ctx.y + i * lineH(size - 1), size - 1, INK_MUTED, {
+          align: "center",
+        });
+      });
+      ctx.y += contactLines.length * lineH(size - 1);
+    }
+    ctx.y += 6;
+    ctx.doc.setDrawColor(RULE);
+    ctx.doc.setLineWidth(0.9);
+    ctx.doc.line(MARGIN, ctx.y, PAGE_W - MARGIN, ctx.y);
+
+    /* ---- Date + recipient -------------------------------------------- */
+    ctx.y += 24;
+    drawText(
+      ctx,
+      new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }),
+      MARGIN,
+      ctx.y,
+      size,
+      INK_MUTED,
+    );
+    ctx.y += lineH(size) + 16;
+    drawText(ctx, "Hiring Manager", MARGIN, ctx.y, size, INK);
+    ctx.y += lineH(size);
+    drawText(ctx, "Hiring Team", MARGIN, ctx.y, size, INK);
+    ctx.y += lineH(size);
+
+    /* ---- Salutation + body paragraphs -------------------------------- */
+    ctx.y += 10;
+    drawText(ctx, "Dear Hiring Manager,", MARGIN, ctx.y, size, INK);
+    ctx.y += lineH(size) + 12;
+
+    for (const para of draft.paragraphs) {
+      const clean = sanitize(para);
+      if (!clean) continue;
+      const lines = wrapped(ctx.doc, clean, CONTENT_W, size);
+      const h = lines.length * lineH(size);
+      if (!canFit(ctx, h + 12)) break; // better short than a torn second page
+      lines.forEach((ln, i) => {
+        drawText(ctx, ln, MARGIN, ctx.y + i * lineH(size), size, INK);
+      });
+      ctx.y += h + 12;
+    }
+
+    /* ---- Closing ------------------------------------------------------ */
+    ctx.y += 8;
+    if (canFit(ctx, lineH(size) * 3)) {
+      drawText(ctx, "Sincerely,", MARGIN, ctx.y, size, INK);
+      ctx.y += lineH(size) + 26;
+      drawText(ctx, name, MARGIN, ctx.y, size, INK, { style: "bold" });
+    }
+
+    doc.save("SkillFit_Cover_Letter.pdf");
+    return;
+  }
 }
 
 /* ------------------------------------------------------------------ */

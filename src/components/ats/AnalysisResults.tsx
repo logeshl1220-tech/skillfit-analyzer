@@ -2,11 +2,15 @@ import type { LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import {
   CheckCircle2,
+  Check,
+  Copy,
   Download,
+  FileText,
   Gauge,
   Lightbulb,
   Loader2,
   MessageSquareText,
+  PenLine,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
@@ -15,11 +19,14 @@ import {
 import type {
   Analysis,
   BulletTip,
+  CoverLetterDraft,
   InterviewQuestion,
   ParsedResume,
   RatingTone,
 } from "@/lib/ats";
-import { generateResumePdf } from "@/lib/ats/pdf";
+import { coverLetterToText } from "@/lib/ats";
+import { generateCoverLetter } from "@/lib/ats/engine";
+import { generateCoverLetterPdf, generateResumePdf } from "@/lib/ats/pdf";
 import { ScoreRing } from "@/components/ats/ScoreRing";
 import { cn } from "@/lib/utils";
 
@@ -203,6 +210,8 @@ interface AnalysisResultsProps {
   analysis: Analysis;
   resume: ParsedResume;
   aiPowered: boolean;
+  resumeText: string;
+  jdText: string;
   onNewScan: () => void;
 }
 
@@ -210,11 +219,18 @@ export function AnalysisResults({
   analysis,
   resume,
   aiPowered,
+  resumeText,
+  jdText,
   onNewScan,
 }: AnalysisResultsProps) {
   const { score, tone, rating, signals, matchedSkills, missingSkills, roleLabel } =
     analysis;
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [letter, setLetter] = useState<CoverLetterDraft | null>(null);
+  const [letterText, setLetterText] = useState("");
+  const [letterBusy, setLetterBusy] = useState(false);
+  const [letterPdfBusy, setLetterPdfBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function handleDownloadPdf() {
     if (pdfBusy) return;
@@ -226,6 +242,54 @@ export function AnalysisResults({
     } finally {
       setPdfBusy(false);
     }
+  }
+
+  async function handleGenerateLetter() {
+    if (letterBusy) return;
+    setLetterBusy(true);
+    setLetter(null);
+    try {
+      // Brief pause so the drafting state is visible before the AI call.
+      await new Promise((r) => setTimeout(r, 350));
+      const draft = await generateCoverLetter({
+        resumeText,
+        jd: jdText,
+        roleHint: roleLabel,
+        resume,
+      });
+      setLetter(draft);
+      setLetterText(coverLetterToText(draft));
+    } finally {
+      setLetterBusy(false);
+    }
+  }
+
+  async function handleCopyLetter() {
+    try {
+      await navigator.clipboard.writeText(letterText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (e.g. insecure context) — ignore silently.
+    }
+  }
+
+  function handleLetterPdf() {
+    if (letterPdfBusy || !letter) return;
+    setLetterPdfBusy(true);
+    window.setTimeout(() => {
+      try {
+        generateCoverLetterPdf(resume, {
+          paragraphs: letterText
+            .split(/\n\s*\n/)
+            .map((p) => p.trim())
+            .filter(Boolean),
+          aiPowered: letter.aiPowered,
+        });
+      } finally {
+        setLetterPdfBusy(false);
+      }
+    }, 350);
   }
 
   return (
@@ -284,6 +348,21 @@ export function AnalysisResults({
                 <Download className="size-4" />
               )}
               {pdfBusy ? "Generating PDF…" : "Download Tailored Resume (PDF)"}
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateLetter}
+              disabled={letterBusy}
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/30 bg-violet-400/[0.08] px-4 py-3 text-sm font-semibold text-violet-200 transition-all hover:bg-violet-400/[0.16] hover:text-violet-100 active:scale-[0.99] disabled:cursor-wait disabled:opacity-80"
+            >
+              {letterBusy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PenLine className="size-4" />
+              )}
+              {letterBusy
+                ? "Drafting your personalized cover letter…"
+                : "Generate Cover Letter ✍️"}
             </button>
             <p className="mt-2 text-center text-[10.5px] leading-relaxed text-white/35">
               ATS-friendly · single page · STAR-optimized bullets · matched
@@ -403,6 +482,85 @@ export function AnalysisResults({
           ))}
         </div>
       </SectionCard>
+
+      {/* AI cover letter */}
+      {letterBusy && (
+        <SectionCard
+          icon={PenLine}
+          title="AI cover letter"
+          description="Drafting your personalized cover letter…"
+          delay={280}
+        >
+          <div className="flex flex-col gap-3">
+            {[90, 100, 85, 60].map((w, i) => (
+              <div
+                key={i}
+                className="h-3 animate-pulse rounded bg-white/[0.07]"
+                style={{ width: `${w}%` }}
+              />
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {letter && !letterBusy && (
+        <SectionCard
+          icon={FileText}
+          title="AI cover letter"
+          description={`Tailored for the ${roleLabel} role — edit freely before exporting.`}
+          delay={280}
+          right={
+            <span
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                letter.aiPowered
+                  ? "border-sky-400/25 bg-sky-400/[0.10] text-sky-300"
+                  : "border-white/10 bg-white/[0.05] text-white/50",
+              )}
+            >
+              {letter.aiPowered ? "Gemini AI" : "Rule-based draft"}
+            </span>
+          }
+        >
+          <textarea
+            value={letterText}
+            onChange={(e) => setLetterText(e.target.value)}
+            spellCheck={false}
+            className="min-h-64 w-full resize-y rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 text-[13.5px] leading-relaxed text-white/85 outline-none transition-colors placeholder:text-white/25 focus:border-violet-300/40 focus:ring-2 focus:ring-violet-300/15"
+            aria-label="Cover letter text"
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopyLetter}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.05] px-3.5 py-2 text-xs font-medium text-white/75 transition-colors hover:bg-white/[0.10] hover:text-white"
+            >
+              {copied ? (
+                <Check className="size-3.5 text-emerald-300" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+              {copied ? "Copied!" : "Copy to Clipboard"}
+            </button>
+            <button
+              type="button"
+              onClick={handleLetterPdf}
+              disabled={letterPdfBusy}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-400 to-cyan-300 px-3.5 py-2 text-xs font-semibold text-slate-950 shadow-[0_8px_20px_-10px_rgba(56,189,248,0.6)] transition-all hover:brightness-110 disabled:cursor-wait disabled:opacity-80"
+            >
+              {letterPdfBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+              {letterPdfBusy ? "Generating PDF…" : "Download Cover Letter (PDF)"}
+            </button>
+            <span className="ml-auto text-[11px] tabular-nums text-white/30">
+              {letterText.length.toLocaleString()} characters
+            </span>
+          </div>
+        </SectionCard>
+      )}
 
       {/* Interview kit */}
       <SectionCard

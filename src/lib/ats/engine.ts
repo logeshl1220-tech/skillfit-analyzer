@@ -15,12 +15,14 @@ import { getConvexClient } from "../convexClient";
 import {
   analyzeJobFit,
   inferRole,
+  localCoverLetter,
   parseResume,
   type Analysis,
+  type CoverLetterDraft,
   type ParsedResume,
 } from "../ats";
 
-export type { Analysis };
+export type { Analysis, CoverLetterDraft };
 
 export interface SkillFitResult extends Analysis {
   aiPowered: boolean;
@@ -68,4 +70,49 @@ export async function analyze(input: {
     aiPowered: false,
     resume: parseResume(trimmedResume),
   };
+}
+
+/**
+ * Draft a tailored cover letter. Tries the Gemini-backed Convex action
+ * first; falls back to the deterministic local composer so the feature
+ * still produces a usable letter without an API key.
+ */
+export async function generateCoverLetter(input: {
+  resumeText: string;
+  jd: string;
+  roleHint?: string;
+  resume: ParsedResume;
+}): Promise<CoverLetterDraft> {
+  const roleHint = input.roleHint ?? inferRole(input.jd);
+  try {
+    const client = getConvexClient();
+    const result = await client.action(api.analyze.generateCoverLetter, {
+      resumeText: input.resumeText,
+      jd: input.jd,
+      roleHint,
+      resume: input.resume,
+    });
+    if (
+      result &&
+      typeof result === "object" &&
+      Array.isArray((result as CoverLetterDraft).paragraphs) &&
+      (result as CoverLetterDraft).paragraphs.length > 0
+    ) {
+      return result as CoverLetterDraft;
+    }
+    throw new Error("Invalid response shape from generateCoverLetter action");
+  } catch (err) {
+    console.warn(
+      "[SkillFit] AI cover letter unavailable, using local composer:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  return localCoverLetter({
+    ...(analyzeJobFit({
+      resume: input.resumeText,
+      jd: input.jd,
+      roleHint,
+    }) as Analysis),
+    roleLabel: roleHint,
+  });
 }

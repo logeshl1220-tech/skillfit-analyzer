@@ -7,6 +7,30 @@ import type { ParsedResume, ResumeEntry } from "../lib/ats";
 const GEMINI_API_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
+const COVER_LETTER_PROMPT = `You are SkillFit, an expert career coach writing targeted cover letters for college students and freshers.
+
+Given a parsed resume, the raw resume text, and a job description, write a concise, persuasive, professional cover letter of exactly 4 paragraphs.
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "paragraphs": ["<paragraph 1>", "<paragraph 2>", "<paragraph 3>", "<paragraph 4>"]
+}
+
+Paragraph plan:
+1. Strong hook: genuine enthusiasm for THIS specific role (use the exact role title from the JD) plus one line on the candidate's core background.
+2. 2-3 matched technical achievements drawn from the resume, each with quantifiable impact (numbers, %, scale) — rephrase resume bullets into flowing first-person prose, never copy them verbatim.
+3. Address the JD's key requirements and explain role/culture fit; when the resume misses a requirement, reframe eagerness and adjacent experience positively instead of apologizing.
+4. Professional sign-off paragraph with a clear call to action (availability for an interview) and gratitude.
+
+Rules:
+- First person, confident but never arrogant; no clichés like "I am writing to apply".
+- Every claim must be grounded in the resume — never invent companies, projects, or numbers.
+- Naturally weave in 3-5 of the JD's exact skill keywords.
+- 45-70 words per paragraph; total under 280 words.
+- No markdown, no placeholders like [Company Name] (say "your team"), no salutation/closing lines ("Dear...", "Sincerely") — the app adds letterhead itself.`;
+
+const COVER_LETTER_SYSTEM_MODEL = "gemini-2.0-flash";
+
 const SYSTEM_PROMPT = `You are SkillFit, an expert ATS resume analyzer. Given a resume and a job description, produce a JSON analysis evaluating how well the resume fits the role.
 
 Return ONLY valid JSON (no markdown fences) matching this exact schema:
@@ -136,6 +160,85 @@ export const analyzeResume = action({
       questions: normalizeQuestions(parsed.questions),
       resume: normalizeResume(parsed.resume),
     };
+  },
+});
+
+/* ------------------------------------------------------------------ */
+/* Cover letter generation                                              */
+/* ------------------------------------------------------------------ */
+
+export const generateCoverLetter = action({
+  args: {
+    resumeText: v.string(),
+    jd: v.string(),
+    roleHint: v.string(),
+    resume: v.optional(v.any()),
+  },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        "GEMINI_API_KEY is not configured. Add it to your Convex environment variables.",
+      );
+    }
+
+    const parsed =
+      args.resume && typeof args.resume === "object"
+        ? JSON.stringify(args.resume, null, 0).slice(0, 4000)
+        : "(not available)";
+
+    const userMessage = [
+      `Target role: ${args.roleHint}`,
+      "=== PARSED RESUME (structured) ===",
+      parsed,
+      "",
+      "=== RAW RESUME TEXT ===",
+      args.resumeText.slice(0, 6000),
+      "",
+      "=== JOB DESCRIPTION ===",
+      args.jd.slice(0, 4000),
+    ].join("\n");
+
+    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: userMessage }] }],
+        systemInstruction: { parts: [{ text: COVER_LETTER_PROMPT }] },
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.95,
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+        `Gemini API error ${response.status}: ${body.slice(0, 300)}`,
+      );
+    }
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("Gemini returned an empty response.");
+
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const out = JSON.parse(cleaned) as { paragraphs?: unknown };
+
+    const paragraphs = Array.isArray(out.paragraphs)
+      ? out.paragraphs
+          .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+          .map((p) => p.trim())
+      : [];
+
+    if (paragraphs.length < 3) {
+      throw new Error("Gemini returned fewer than 3 paragraphs.");
+    }
+
+    return { paragraphs: paragraphs.slice(0, 5), aiPowered: true };
   },
 });
 

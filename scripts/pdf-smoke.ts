@@ -6,8 +6,14 @@
  *  3. Every drawn text fragment, line-wrapped at body size, fits CONTENT_W.
  * Not bundled into the app.
  */
-import { buildDoc, composeStarBullet } from "../src/lib/ats/pdf";
-import { analyzeJobFit, parseResume, sampleScenario } from "../src/lib/ats";
+import { buildDoc, composeStarBullet, generateCoverLetterPdf } from "../src/lib/ats/pdf";
+import {
+  analyzeJobFit,
+  coverLetterToText,
+  localCoverLetter,
+  parseResume,
+  sampleScenario,
+} from "../src/lib/ats";
 
 const sample = sampleScenario();
 const analysis = analyzeJobFit({ resume: sample.resume, jd: sample.jd });
@@ -97,6 +103,35 @@ const huge = {
 const overflowDoc = buildDoc(huge, analysis, 8, true, false);
 if (!overflowDoc) fail("allowOverflow path returned null");
 else console.log(`4. Overflow path builds (${overflowDoc.getNumberOfPages()} pages) · OK`);
+
+/* ---- 5. Local cover letter composer ------------------------------------- */
+const draft = localCoverLetter(analysis);
+if (draft.paragraphs.length < 3) {
+  fail(`expected 3-4 paragraphs, got ${draft.paragraphs.length}`);
+}
+if (draft.paragraphs.some((p) => /\b(S|T|A|R):/.test(p))) {
+  fail("cover letter contains STAR labels");
+}
+if (draft.paragraphs.some((p) => p.length < 80)) {
+  fail("cover letter has a suspiciously short paragraph (<80 chars)");
+}
+console.log(`5. Local cover letter: ${draft.paragraphs.length} paragraphs · OK`);
+
+/* ---- 6. Cover-letter PDF builds ----------------------------------------- */
+try {
+  generateCoverLetterPdf(resume, draft); // exercises the builder end-to-end
+  console.log("6. Cover-letter PDF builds · OK");
+} catch (e) {
+  fail(`cover-letter PDF threw: ${e instanceof Error ? e.message : e}`);
+}
+
+/* ---- 7. Letter text round-trip ------------------------------------------- */
+const letterText = coverLetterToText(draft);
+const back = letterText.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+if (back.length !== draft.paragraphs.length) {
+  fail(`paragraph round-trip mismatch: ${back.length} vs ${draft.paragraphs.length}`);
+}
+console.log("7. Letter text round-trip · OK");
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);

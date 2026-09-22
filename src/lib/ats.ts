@@ -35,6 +35,11 @@ export interface InterviewQuestion {
   why: string;
 }
 
+export interface CoverLetterDraft {
+  paragraphs: string[];
+  aiPowered: boolean;
+}
+
 export interface Analysis {
   score: number;
   rating: string;
@@ -705,6 +710,76 @@ export function sampleScenario() {
     roleHint: ROLE_PRESETS[0].role,
     presetId: ROLE_PRESETS[0].id,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Cover letter — local fallback composer (no AI key needed)            */
+/* ------------------------------------------------------------------ */
+
+/** "Frontend Developer (React)" → "frontend developer" for prose. */
+function roleForProse(role: string): string {
+  return role.toLowerCase().replace(/\s*\([^)]*\)\s*/g, "").trim();
+}
+
+/**
+ * Deterministic 4-paragraph fallback letter built from the analysis —
+ * used when Gemini is unavailable so the feature still works offline.
+ * Self-contained on purpose: no imports from ats/pdf.ts (which pulls jsPDF
+ * into any server bundle that imports this module).
+ */
+function starProse(t: BulletTip): string {
+  return [
+    t.situation,
+    t.task,
+    t.action,
+    t.result,
+  ]
+    .map((s) =>
+      s
+        .replace(/^(Situation|Task|Action|Result)\s*[:\-—–]\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/[.\s]+$/, ""),
+    )
+    .filter((s) => s.length > 3)
+    .map((s) => (/[.!?]$/.test(s) ? s : `${s}.`))
+    .join(" ");
+}
+
+export function localCoverLetter(
+  analysis: Analysis,
+): CoverLetterDraft {
+  const role = analysis.roleLabel || "Software Engineer";
+  const matched = analysis.matchedSkills.slice(0, 3);
+  const missing = analysis.missingSkills.slice(0, 2);
+  const skills = matched.length > 0 ? matched.join(", ") : "core web technologies";
+  const achievements = analysis.bulletTips
+    .filter((t) => t.original)
+    .map(starProse)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const p2 =
+    achievements.length > 0
+      ? `My recent work maps directly to the core of this role: ${achievements.join(" ")}`
+      : `Through coursework and personal projects I have built complete, working applications with ${skills}, and I hold myself to the standard of shipping measurable outcomes rather than checklists.`;
+
+  const gaps = [...missing, "clear communication", "ownership"];
+
+  return {
+    paragraphs: [
+      `I am excited to apply for the ${roleForProse(role)} position. My background combines hands-on project experience with ${skills}, and I am eager to bring that blend of curiosity and ownership to your team.`,
+      `What I offer maps directly to what you are hiring for. ${p2}`,
+      `Beyond the matched keywords, I understand the role calls for ${gaps.join(", ")}. I close gaps fast: I learn in public, ship in small reviewable increments, and ask sharp questions early — habits that have served me well in every project and internship so far.`,
+      `I would welcome the chance to discuss how my experience can contribute to your team's goals. Thank you for your time and consideration — I look forward to hearing from you.`,
+    ],
+    aiPowered: false,
+  };
+}
+
+/** Join paragraphs into a single prose document with blank lines. */
+export function coverLetterToText(draft: CoverLetterDraft): string {
+  return draft.paragraphs.join("\n\n");
 }
 
 /* ------------------------------------------------------------------ */
